@@ -18,10 +18,10 @@ pip install -r requirements.txt
 ```
 conda create -n cellplm python=3.9 -y && conda activate cellplm
 conda install cudatoolkit=11.7 -c pytorch -c nvidia
-pip install torch==1.13.0+cu117 --extra-index-url https://download.pytorch.org/whl/cu117
-pip install einops ipdb pydance torchmetrics wandb hdf5plugin
+pip install torch==1.13.1+cu117 --extra-index-url https://download.pytorch.org/whl/cu117
+pip install einops ipdb pydance torchmetrics wandb hdf5plugin dgl mygene
 ```
-Here we recommend using `python 3.9` and `cuda 11.7` but they are adjustable.
+Here we recommend using `python 3.9` and `cuda 11.7` but they are adjustable. We explicitly request `torch>=1.13.1` for sparse operations.
 
 ## Tutorials
 We offer several notebooks for various downstream tasks as introductory tutorials. 
