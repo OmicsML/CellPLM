@@ -2,12 +2,13 @@
 
 We plan to gradually release tutorials for different downstream tasks, including:
 
-- [x] Cell-type annotation
+- [x] Cell-type Annotation
 - [ ] Spatial Imputation
-- [ ] scRNA-seq denoising
-- [ ] Gene perturbation prediction
+- [ ] Zero-shot Cell Embedding
+- [ ] Gene Perturbation Prediction
 
-We also plan to build a more user-friendly interface for downstream tasks, therefore, the tutorials might be updated from time to time.
+~We also plan to build a more user-friendly interface for downstream tasks, therefore, the tutorials might be updated from time to time.~
+The cell-type annotation tutorial is updated on 12/05/2023.  A unified `pipeline` module is now added for downstream analyses.
 
 ## Dataset Preparation
 
@@ -17,4 +18,4 @@ All datasets used in our tutorials are collected from previous publications and 
 
 ## Customized Dataset
 
-Currently we do not provide instructions for customized datasets but we will support it soon.
+The customized dataset can now be easily processed with `CellPLM.pipeline` module. Please refer to the tutorial of each downstream task.
