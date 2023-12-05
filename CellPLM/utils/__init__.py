@@ -1,6 +1,24 @@
 import torch.nn as nn
 import torch
+import numpy as np
 import random
+import os
+import logging
+
+def set_seed(rndseed, cuda: bool = True, extreme_mode: bool = False):
+    os.environ["PYTHONHASHSEED"] = str(rndseed)
+    random.seed(rndseed)
+    np.random.seed(rndseed)
+    torch.manual_seed(rndseed)
+    if cuda:
+        torch.cuda.manual_seed(rndseed)
+        torch.cuda.manual_seed_all(rndseed)
+    if extreme_mode:
+        torch.backends.cudnn.benchmark = False
+        torch.backends.cudnn.deterministic = True
+    # dgl.seed(rndseed)
+    # dgl.random.seed(rndseed)
+    logging.info(f"Setting global random seed to {rndseed}")
 
 class RMSNorm(nn.Module):
     def __init__(self, dim: int, eps: float = 1e-6):

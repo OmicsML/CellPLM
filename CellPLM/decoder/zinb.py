@@ -139,7 +139,7 @@ class NBMLPDecoder(nn.Module):
                 nn.Dropout(dropout),
                 create_norm(norm, hidden_dim),
             ))
-            if sum(self.covariate_num.values()):
+            if sum(self.covariate_num.values()): # Covariates exist
                 self.covariate_layers.append(nn.ModuleDict())
                 for cov in self.covariate_num.keys():
                     if self.covariate_num[cov] > 0:
@@ -155,15 +155,14 @@ class NBMLPDecoder(nn.Module):
 
     def forward(self, x_dict):
         x = x_dict['h']
-        # x = x + self.batch_emb(batch_labels)#self.layer_norm(self.batch_emb(batch_labels))
         for i, layer in enumerate(self.layers):
-            if sum(self.covariate_num.values()):
+            if sum(self.covariate_num.values()): # Covarites (batch/dataset/platform) exist
                 x = layer(x)
-                for cov in self.covariate_num.keys():
-                    if self.covariate_num[cov] > 0:
-                        if cov in x_dict:
+                for cov in self.covariate_num.keys(): # Iterate over each type of covariate (batch/dataset/platform)
+                    if self.covariate_num[cov] > 0: # if a certain type of covariate exist
+                        if cov in x_dict: # Whether the covaraite label is input
                             x += self.covariate_layers[i][cov](x_dict[cov])
-                        else:
+                        else: # If not input, take average over all of them
                             convariate_layer = self.covariate_layers[i][cov]
                             x += convariate_layer[2](convariate_layer[1](convariate_layer[0].weight.detach().sum(0).unsqueeze(0)))
             else:

@@ -1,6 +1,5 @@
 from torch import nn
-from abc import ABC
-from abc import abstractmethod
+from abc import ABC, abstractmethod
 from torch import Tensor
 from torch.nn import functional as F
 from torch.nn.modules import Module

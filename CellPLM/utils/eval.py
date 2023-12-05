@@ -2,8 +2,18 @@ import scanpy as sc
 import numpy as np
 import torch
 import torch.nn.functional as F
-from scipy.sparse import csr_matrix
+from typing import List
 from torchmetrics.functional.classification import multiclass_f1_score, multiclass_accuracy, multiclass_precision, multiclass_recall 
+
+def aggregate_eval_results(scores: List[dict]):
+    scores_new = {}
+    for k in scores[0].keys():
+        scores_new[k] = []
+        for t in scores:
+            scores_new[k].append(t[k])
+        scores_new[k] = sum(scores_new[k]) / len(scores_new[k])
+    scores = scores_new
+    return scores
 
 def downstream_eval(task, pred_labels, true_labels, num_classes=None, eval_mask=None, dim=1, 
                     normalize=True, top_de_dict=None, batch_labels=None, control_level=None,

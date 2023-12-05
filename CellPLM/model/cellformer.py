@@ -24,6 +24,7 @@ class OmicsFormer(nn.Module):
 
         self.embedder = OmicsEmbeddingLayer(gene_list, enc_hid, norm, activation, model_dropout,
                                             pe_type, cat_pe, gene_emb, inject_covariate=input_covariate, batch_num=batch_num)
+        self.gene_set = set(gene_list)
         self.mask_type = mask_type
         if mask_node_rate > 0 and mask_feature_rate > 0:
             if mask_type == 'input':

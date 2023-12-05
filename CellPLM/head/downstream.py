@@ -31,9 +31,12 @@ class AnnotationHead(nn.Module):
     def forward(self, x_dict):
         logits = self.mlp(x_dict['h'][x_dict['loss_mask']])
         pred = logits.argmax(1)
-        y = x_dict['label'][x_dict['loss_mask']].long()
-        loss = self.ce_loss(logits, y)
-        return {'pred': pred, 'latent': x_dict['h'], 'label': y}, loss
+        if 'label' in x_dict:
+            y = x_dict['label'][x_dict['loss_mask']].long()
+            loss = self.ce_loss(logits, y)
+            return {'pred': pred, 'latent': x_dict['h'], 'label': y}, loss
+        else:
+            return {'pred': pred, 'latent': x_dict['h']}, torch.tensor(float('nan'))
 
 class PatientClassificationHead(nn.Module):
     def __init__(self, in_dim, hidden_dim, num_classes, num_layers, dropout, norm=None, batch_num=None, **kwargs):

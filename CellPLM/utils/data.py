@@ -1,13 +1,128 @@
 import scanpy as sc
 import pandas as pd
-import logging
-from tqdm import tqdm
-import torch
+import numpy as np
+import anndata as ad
+import scipy
 from sklearn.preprocessing import LabelEncoder
 import torch
 from torch.utils.data import Dataset
 import json
 import os
+import warnings
+from typing import List
+
+SPATIAL_PLATFORM_LIST = ['cosmx']
+
+
+def sparse_scipy_to_tensor(x: scipy.sparse.csr_matrix):
+    return torch.sparse_csr_tensor(x.indptr, x.indices, x.data, (x.shape[0], x.shape[1])).to_sparse().float().coalesce()
+
+
+class TranscriptomicDataset(Dataset):
+    def __init__(self, adata: ad.AnnData,
+                 split_field: str = None,
+                 covariate_fields: List[str] = None,
+                 label_fields: List[str] = None,
+                 batch_gene_list: dict = None,
+                 covariate_encoders: dict = None,
+                 label_encoders: dict = None):
+        self.seq_list = []
+        self.coord_list = []
+        self.batch_gene_list = batch_gene_list
+        self.covariate_fields = covariate_fields
+        self.label_fields = label_fields
+        if not self.batch_gene_list:
+            self.gene_list = adata.var.index.tolist()
+        else:
+            assert 'batch' in adata.obs, 'Batch specific gene list is set but batch labels are not found in AnnData.obs.'
+
+        if split_field:
+            assert split_field in adata.obs, f'Split field `{split_field}` is specified but not found in AnnData.obs.'
+            self.split_list = []
+        else:
+            self.split_list = None
+
+        if not label_fields:
+            label_fields = []
+        if not covariate_fields:
+            covariate_fields = []
+        self.label_list = dict(zip(label_fields, [[] for _ in range(len(label_fields))]))
+        self.covariate_list = dict(zip(covariate_fields, [[] for _ in range(len(covariate_fields))]))
+        if not covariate_encoders:  # Fit LabelEncoder on covariates
+            self.covariate_encoders = dict(
+                zip(covariate_fields, [LabelEncoder().fit(adata.obs[c]) for c in covariate_fields]))
+        else:  # Load pre-fit LabelEncoder
+            self.covariate_encoders = covariate_encoders
+        if not label_encoders:  # Fit LabelEncoder on labels
+            self.label_encoders = dict(zip(label_fields, [LabelEncoder().fit(adata.obs[l]) for l in label_fields]))
+        else:  # Load pre-fit LabelEncoder
+            self.label_encoders = label_encoders
+        covariates = dict(
+            zip(covariate_fields,
+                [self.covariate_encoders[c].transform(adata.obs[c]) for c in covariate_fields]))
+        labels = dict(
+            zip(label_fields,
+                [self.label_encoders[l].transform(adata.obs[l]) for l in label_fields]))
+
+        if 'batch' not in adata.obs:
+            warnings.warn(
+                'Batch labels not found in AnnData.obs. All cells are considered from the same sample by default.')
+            batch_labels = np.zeros(adata.shape[0], dtype=np.int8)
+            self.batch_list = [None]
+        else:
+            batch_le = LabelEncoder().fit(adata.obs['batch'])
+            batch_labels = batch_le.transform(adata.obs['batch'])
+            self.batch_list = []
+
+        for batch in range(batch_labels.max() + 1):
+            x = adata[batch_labels == batch].X.astype(float)
+            self.seq_list.append(sparse_scipy_to_tensor(x))
+
+            for c in covariate_fields:
+                self.covariate_list[c].append(torch.from_numpy(covariates[c][batch_labels == batch]))
+
+            for l in label_fields:
+                self.label_list[l].append(torch.from_numpy(labels[l][batch_labels == batch]))
+
+            if 'batch' in adata.obs:
+                self.batch_list.append(batch_le.classes_[batch])
+
+            if 'platform' in adata.obs and adata.obs['platform'][batch_labels == batch].first().isin(
+                    SPATIAL_PLATFORM_LIST):
+                # TODO: implement coord loader for spatial transcriptomic data
+                import ipdb
+                ipdb.set_trace()
+                coord_x = torch.from_numpy(adata.obs['x_FOV_px'][batch_labels == batch])
+                coord_y = torch.from_numpy(adata.obs['y_FOV_px'][batch_labels == batch])
+                self.coord_list.append(torch.cat([coord_x, coord_y], 1))
+            else:
+                self.coord_list.append(torch.zeros(x.shape[0], 2) - 1)
+
+            if split_field:
+                self.split_list.append(adata.obs[split_field][batch_labels == batch])
+
+    def __len__(self):
+        return len(self.batch_list)
+
+    def __getitem__(self, idx):
+        return_dict = {'coord': self.coord_list[idx],
+                       'x_seq': self.seq_list[idx]}
+        for c in self.covariate_list:
+            return_dict[c] = self.covariate_list[c][idx]
+        for l in self.label_list:
+            return_dict[l] = self.label_list[l][idx]
+
+        if self.split_list:
+            return_dict['split'] = self.split_list[idx]
+        else:
+            return_dict['split'] = None
+
+        if self.batch_gene_list:
+            return_dict['gene_list'] = self.batch_gene_list[self.batch_list[idx]]
+        else:
+            return_dict['gene_list'] = self.gene_list
+        return return_dict
+
 
 class SCDataset(Dataset):
     def __init__(self, tensor_dir='/', gene_set=None):
@@ -35,10 +150,10 @@ class SCDataset(Dataset):
         return len(self.batch_metadata['batch_id'])
 
     def __getitem__(self, idx):
-        tensor_path = os.path.join(self.tensor_dir, str(self.batch_metadata['batch_id'][idx])+'.pt')
+        tensor_path = os.path.join(self.tensor_dir, str(self.batch_metadata['batch_id'][idx]) + '.pt')
         seq = torch.load(tensor_path).coalesce()
-        if self.batch_metadata['platform'][idx]=='cosmx':
-            coord = torch.load(os.path.join(self.tensor_dir, str(self.batch_metadata['batch_id'][idx])+'.coord.pt'))
+        if self.batch_metadata['platform'][idx] in SPATIAL_PLATFORM_LIST:
+            coord = torch.load(os.path.join(self.tensor_dir, str(self.batch_metadata['batch_id'][idx]) + '.coord.pt'))
         else:
             coord = torch.zeros([seq.shape[0], 2]).float() - 1
         batch_id = torch.zeros(seq.shape[0]).long() + int(self.batch_metadata['batch_id'][idx])
@@ -64,22 +179,24 @@ class SCDataset(Dataset):
 
     def get_valid(self):
         assert self.isddp, 'Dataset is not a ddp dataset. Please call ".to_ddp()" before querying validation set.'
-        assert len(self.val_idx)>0, 'No available validation set.'
+        assert len(self.val_idx) > 0, 'No available validation set.'
         return self._partition(self.val_idx)
 
     def to_ddp(self, n_partitions, max_batch_size=2000, val_num=0, val_idx=None):
         assert not self.isddp, 'Dataset is already ddp dataset.'
 
-        if val_num>0:
+        if val_num > 0:
             if not val_idx:
                 ids = np.random.permutation(len(self.batch_metadata['batch_id']))
                 self.val_idx = ids[:val_num]
                 self.train_idx = ids[val_num:]
             else:
-                self.train_idx = np.array([i for i in range(len(self.batch_metadata['batch_id'])) if i not in set(val_idx)])
+                self.train_idx = np.array(
+                    [i for i in range(len(self.batch_metadata['batch_id'])) if i not in set(val_idx)])
                 self.val_idx = np.array(val_idx)
-            self.partitions = balanced_partition(np.array(self.batch_metadata['batch_size'])[self.train_idx], n_partitions,
-                                    max_batch_size)
+            self.partitions = balanced_partition(np.array(self.batch_metadata['batch_size'])[self.train_idx],
+                                                 n_partitions,
+                                                 max_batch_size)
             new_partitions = [[] for _ in range(n_partitions)]
             for i, p in enumerate(self.partitions):
                 for j in p:
@@ -91,6 +208,7 @@ class SCDataset(Dataset):
             self.val_idx = np.array([])
             self.partitions = balanced_partition(self.batch_metadata['batch_size'], n_partitions, max_batch_size)
         self.isddp = True
+
 
 class SCPartitionDataset(Dataset):
     def __init__(self, batch_metadata, tensor_dir, idx, gene_set=None):
@@ -114,16 +232,16 @@ class SCPartitionDataset(Dataset):
             self.did2mask = None
 
     def __len__(self):
-        return len(self.batch_metadata['batch_id'])#//10
+        return len(self.batch_metadata['batch_id'])  # //10
 
     def __getitem__(self, idx):
-        tensor_path = os.path.join(self.tensor_dir, str(self.batch_metadata['batch_id'][idx])+'.pt')
+        tensor_path = os.path.join(self.tensor_dir, str(self.batch_metadata['batch_id'][idx]) + '.pt')
         seq = torch.load(tensor_path).coalesce()
-        if self.batch_metadata['platform'][idx]=='cosmx':
-            coord = torch.load(os.path.join(self.tensor_dir, str(self.batch_metadata['batch_id'][idx])+'.coord.pt'))
+        if self.batch_metadata['platform'][idx] in SPATIAL_PLATFORM_LIST:
+            coord = torch.load(os.path.join(self.tensor_dir, str(self.batch_metadata['batch_id'][idx]) + '.coord.pt'))
         else:
             coord = torch.zeros([seq.shape[0], 2]).float() - 1
-        if seq.shape[0]>2000:
+        if seq.shape[0] > 2000:
             randid = torch.randperm(seq.shape[0])
             coord = coord[randid[:2000]]
             seq = seq.index_select(0, randid[:2000]).coalesce()
@@ -141,6 +259,7 @@ class SCPartitionDataset(Dataset):
         assert self.did2mask, 'gene_set was not passed when created dataset.'
         return self.did2mask[dataset_id]
 
+
 class XDict(dict):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -153,7 +272,7 @@ class XDict(dict):
     #         assert v.shape[0] == self._num, f'{k} contains {v.shape[0]} samples. Expected: f{self._num}'
 
     def size(self):
-        logging.info('Deprecated function: Xdict.size()')
+        warnings.warn("Deprecated function: Xdict.size().", DeprecationWarning)
         return self._num
 
     # Not usable for sparse data
@@ -163,6 +282,7 @@ class XDict(dict):
     #     for k, v in self.items():
     #         self[k] = v[keep_idx]
     #     return self
+
 
 def clean_batches(data):
     # Remove batch with less than 1000 cells
@@ -174,7 +294,6 @@ def clean_batches(data):
     data = data[~data.obs['batch'].isin(set(remove_list))]
     return data
 
-import numpy as np
 
 def balanced_partition(data, n_partitions, max_batch_size=2000):
     # Sort batches
@@ -194,6 +313,7 @@ def balanced_partition(data, n_partitions, max_batch_size=2000):
         j = (j + 1) % n_partitions
     return partitions
 
+
 def stratified_sample_genes_by_sparsity(data, boundaries=None, seed=10):
     df = data.to_df()
     zero_rates = 1 - df.astype(bool).sum(axis=0) / df.shape[0]
@@ -207,7 +327,9 @@ def stratified_sample_genes_by_sparsity(data, boundaries=None, seed=10):
     samples = zero_rates.apply(lambda x: x.sample(min(len(x), 25), random_state=seed))
     return list(samples.index)
 
+
 def data_setup(adata, return_sparse=True, device='cpu'):
+    warnings.warn("`Data_setup` function is deprecated. Use `CellPLM.pipeline` instead.", DeprecationWarning)
     # Data Setup
     order = torch.arange(adata.shape[0], device=device)
     lb = LabelEncoder().fit(adata.obs['batch'])
@@ -218,7 +340,7 @@ def data_setup(adata, return_sparse=True, device='cpu'):
     order_list = []
     dataset_list = []
     coord_list = []
-    if adata.obs['cell_type'].dtype!=int:
+    if adata.obs['cell_type'].dtype != int:
         labels = LabelEncoder().fit_transform(adata.obs['cell_type'])
     else:
         labels = adata.obs['cell_type'].values
@@ -239,8 +361,9 @@ def data_setup(adata, return_sparse=True, device='cpu'):
         order_list.append(order[batch_labels == batch])
         dataset_list.append(torch.from_numpy(dataset_label[batch_labels == batch]).long().to(device))
         batch_list.append(torch.from_numpy(batch_labels[batch_labels == batch]).to(device))
-        if adata.obs['platform'][batch_labels == batch][0] == 'cosmx':
-            coord_list.append(torch.from_numpy(adata.obs[['x_FOV_px', 'y_FOV_px']][batch_labels == batch].values).to(device))
+        if adata.obs['platform'][batch_labels == batch][0] in SPATIAL_PLATFORM_LIST:
+            coord_list.append(
+                torch.from_numpy(adata.obs[['x_FOV_px', 'y_FOV_px']][batch_labels == batch].values).to(device))
         else:
             coord_list.append(torch.zeros(order_list[-1].shape[0], 2).to(device) - 1)
         label_list.append(torch.from_numpy(labels[batch_labels == batch].astype(int)).to(device))
