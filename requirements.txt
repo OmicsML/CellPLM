@@ -1,9 +1,15 @@
 --extra-index-url https://download.pytorch.org/whl/cu117
+--extra-index-url https://pypi.nvidia.com
 torch==1.13.0+cu117
+cudf-cu11==23.4.1
+dask-cudf-cu11==23.4.1
+cuml-cu11==23.4.1
+cugraph-cu11==23.4.1
+cucim==23.4.1
 einops
-pydance
 torchmetrics
-wandb
 hdf5plugin
-dgl
 mygene
+pydance
+rapids-singlecell
+cellplm

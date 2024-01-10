@@ -1,0 +1,38 @@
+[build-system]
+requires = ["setuptools>=42.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "cellplm"
+version = "0.1.0"
+authors = [
+  { name="Hongzhi Wen", email="wenhongz@msu.edu" },
+]
+description = "Package of CellPLM: A pretrain-ed cell language model beyond single cells. Paper link: https://www.biorxiv.org/content/10.1101/2023.10.03.560734"
+readme = "README.md"
+requires-python = ">=3.9"
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "License :: OSI Approved :: BSD License",
+    "Operating System :: OS Independent",
+    "Intended Audience :: Science/Research",
+]
+dependencies = [
+    'pydance',
+    'einops',
+    'torchmetrics',
+    'hdf5plugin',
+    'mygene',
+]
+
+[project.optional-dependencies]
+rapids = [
+    'rapids-singlecell',
+]
+
+[project.urls]
+Homepage = "https://github.com/OmicsML/CellPLM"
+Issues = "https://github.com/OmicsML/CellPLM/issues"
+
+[tool.setuptools]
+packages = ['CellPLM']

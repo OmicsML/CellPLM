@@ -7,21 +7,22 @@ This is the official codebase for [CellPLM: Pre-training of Cell Language Model 
 ***CellPLM*** is the first single-***Cell*** ***P***re-trained ***L***anguage ***M***odel that encodes cell-cell relations and it consistently outperforms existing pre-trained and non-pre-trained models in diverse downstream tasks, with 100x higher inference speed compared to existing pre-trained models.
 
 ## Installation
-We plan to release our project on PyPI soon. For now, please follow the instruction below to set up the environment for CellPLM:
-### Quick Installaton
+We recommend PyPI for quick installation. We recommend using `python 3.9` and `cuda>=11.7` but they are adjustable.
+
+
+### Quick Installation with PyPI
+Make sure gpu version of pytorch (>=1.13.0) has been installed before installing CellPLM.
 ```
-git clone git@github.com:OmicsML/cellplm.git && cd cellplm
-pip install -r requirements.txt
+pip install cellplm
 ```
 
-### Complete Installation (recommended for HPC users)
+### Full Installation (recommended for HPC users and developers)
 ```
 conda create -n cellplm python=3.9 -y && conda activate cellplm
 conda install cudatoolkit=11.7 -c pytorch -c nvidia
-pip install torch==1.13.0+cu117 --extra-index-url https://download.pytorch.org/whl/cu117
-pip install einops ipdb pydance torchmetrics wandb hdf5plugin dgl mygene
+pip install -r requirements.txt
 ```
-We recommend using `python 3.9` and `cuda 11.7` but they are adjustable.
+The full installation will install the same environment as we used during development. This includes `rapids` used to accelerate evaluation.
 
 ## Tutorials
 We offer several [notebooks](https://github.com/OmicsML/CellPLM/tree/main/tutorials) for various downstream tasks as introductory tutorials. 
