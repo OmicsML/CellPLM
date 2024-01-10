@@ -69,10 +69,13 @@ class OmicsFormer(nn.Module):
         else:
             self.decoder = setup_decoder(dec_mod, post_latent_dim, dec_hid, out_dim, dec_layers,
                                          model_dropout, norm, batch_num=batch_num, dataset_num=dataset_num, platform_num=platform_num)
-            if 'nb' in dec_mod:
-                self.objective = Objectives([{'type': 'nb', 'dae': dae}])
+            if 'objective' in kwargs:
+                self.objective = Objectives([{'type': kwargs['objective']}])
             else:
-                self.objective = Objectives([{'type': 'recon'}])
+                if 'nb' in dec_mod:
+                    self.objective = Objectives([{'type': 'nb', 'dae': dae}])
+                else:
+                    self.objective = Objectives([{'type': 'recon'}])
 
         if dsbn:
             self.pre_latent_norm = PreLatentNorm('dsbn', enc_hid, dataset_num)

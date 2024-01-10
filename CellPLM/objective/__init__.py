@@ -1,4 +1,4 @@
-from .zinb import ZINBReconstructionLoss, NBReconstructionLoss
+from .zinb import ZINBReconstructionLoss, NBReconstructionLoss, NBDenoisingLoss, NBImputationLoss
 from .autoencoder import ReconstructionLoss
 from torch import nn
 
@@ -9,6 +9,10 @@ def create_objective(**config) -> nn.Module:
         return ZINBReconstructionLoss(**config)
     elif config['type'] == 'nb':
         return NBReconstructionLoss(**config)
+    elif config['type'] == 'denoise':
+        return NBDenoisingLoss(**config)
+    elif config['type'] == 'imputation':
+        return NBImputationLoss(**config)
     else:
         raise ValueError(f"Unrecognized latent model name: {config['type']}")
 

@@ -25,7 +25,7 @@ def downstream_eval(task, pred_labels, true_labels, num_classes=None, eval_mask=
     elif task == 'imputation':
         return imputation_eval(pred_labels, true_labels, dim)
     elif task == 'perturbation_prediction':
-        raise NotImplmentedError("For simplicity, the perturbation evaluation is removed from the current release.")
+        raise NotImplementedError("For simplicity, the perturbation evaluation is removed from the current release.")
     else:
         raise NotImplementedError(f"{task} should be chosen from ['annotation', 'denoising', 'imputation', 'perturbation_prediction']")
 
@@ -39,6 +39,7 @@ def CountCorr(y_true, y_pred):
     return pearson
 
 def PearsonCorr(y_true, y_pred):
+    assert len(y_true.shape) == 2
     y_true_c = y_true - torch.mean(y_true, 1)[:, None]
     y_pred_c = y_pred - torch.mean(y_pred, 1)[:, None]
     pearson = torch.mean(torch.sum(y_true_c * y_pred_c, 1) / torch.sqrt(torch.sum(y_true_c * y_true_c, 1)) 
@@ -46,6 +47,7 @@ def PearsonCorr(y_true, y_pred):
     return pearson
 
 def PearsonCorr1d(y_true, y_pred):
+    assert len(y_true.shape) == 1
     y_true_c = y_true - torch.mean(y_true)
     y_pred_c = y_pred - torch.mean(y_pred)
     pearson = torch.mean(torch.sum(y_true_c * y_pred_c) / torch.sqrt(torch.sum(y_true_c * y_true_c)) 
@@ -54,7 +56,7 @@ def PearsonCorr1d(y_true, y_pred):
 
 
 def clustering_eval(adata, cluster_key='leiden', label_key='cell_type'):
-    raise NotImplmentedError("For simplicity, rapids_singlecell was removed from the dependency. Therefore currently the clustering evaluation is not available.")
+    raise NotImplementedError("For simplicity, rapids_singlecell was removed from the dependency. Therefore currently the clustering evaluation is not available.")
     import rapids_singlecell as rsc
     from scib.metrics.ari import ari
     from scib.metrics.nmi import nmi
@@ -74,7 +76,7 @@ def clustering_eval(adata, cluster_key='leiden', label_key='cell_type'):
     return {'ari': best_ari, 'nmi':best_nmi}
 
 def minimum_eval(adata):
-    raise NotImplmentedError("For simplicity, scib was removed from the dependency. Therefore currently the scib evaluation is not available.")
+    raise NotImplementedError("For simplicity, scib was removed from the dependency. Therefore currently the scib evaluation is not available.")
     import scib
     print('Start building knn.')
     sc.pp.neighbors(adata, use_rep='X_cellbert', method='rapids')
@@ -121,25 +123,28 @@ def imputation_eval(pred_labels, true_labels, dim=1):
     mae = []
     corr = []
     cos = []
+    # if ((true_labels - true_labels.int().float())<1e-6).all():
+    #     print('Lognorm')
+    #     true_labels = torch.log1p(true_labels)
+    #     pred_labels = torch.log1p(pred_labels)
     for i in range(true_labels.shape[dim]):
-        true_vec = true_labels[i] if dim == 0 else true_labels[:,i]
-        pred_vec = pred_labels[i] if dim == 0 else F.relu(pred_labels[:,i])
-        nz_idx, _ = torch.nonzero(true_labels, as_tuple=True)
-        true_nz = true_vec[nz_idx]
-        pred_nz = pred_vec[nz_idx]
+        true_vec = true_labels[i] if dim == 0 else true_labels[:, i]
+        pred_vec = F.relu(pred_labels[i]) if dim == 0 else F.relu(pred_labels[:, i])
+        (nz_idx,) = torch.nonzero(true_vec, as_tuple=True)
+        true_nz = true_vec#[nz_idx]
+        pred_nz = pred_vec#[nz_idx]
         mse.append(F.mse_loss(pred_nz, true_nz).item())
         rmse.append(np.sqrt(mse))
-        rmsle.append(np.sqrt(F.mse_loss(torch.log(pred_nz+1), torch.log(true_nz+1)).item()))
+        # rmsle.append(np.sqrt(F.mse_loss(torch.log(pred_nz + 1), torch.log(true_nz + 1)).item()))
         mae.append(F.l1_loss(pred_nz, true_nz).item())
         corr.append(PearsonCorr1d(pred_nz, true_nz).item())
         cos.append(F.cosine_similarity(pred_nz, true_nz, dim=0).item())
     rmse = np.concatenate(rmse)
     return {
-        'mse': sum(mse)/len(mse), 
-        'rmse': sum(rmse)/len(rmse), 
-        'rmsle': sum(rmsle)/len(rmsle), 
-        'mae': sum(mae)/len(mae), 
-        'corr': sum(corr)/len(corr),
-        'cos': sum(cos)/len(cos),
+        'mse': sum(mse) / len(mse),
+        'rmse': sum(rmse) / len(rmse),
+        # 'rmsle': sum(rmsle) / len(rmsle),
+        'mae': sum(mae) / len(mae),
+        'corr': sum(corr) / len(corr),
+        'cos': sum(cos) / len(cos),
     }
-

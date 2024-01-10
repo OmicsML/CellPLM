@@ -10,7 +10,7 @@ class ZINBReconstructionLoss(nn.Module):
     def __init__(self, **kwargs):
         super().__init__()
 
-    def __call__(self, out_dict, x_dict, ridge_lambda = 0.0):
+    def forward(self, out_dict, x_dict, ridge_lambda = 0.0):
         """Forward propagation.
         Parameters
         ----------
@@ -57,93 +57,101 @@ class ZINBReconstructionLoss(nn.Module):
         return result
 
 
-
-class NBReconstructionLoss(nn.Module):
-    """ZINB loss class."""
+class NBImputationLoss(nn.Module):
+    """NB loss class."""
 
     def __init__(self, dae=True, **kwargs):
         super().__init__()
         self.dae = dae
         self.downstream = None
 
-    def __call__(self, out_dict, x_dict):
-        """Forward propagation.
-        Parameters
-        ----------
-        x :
-            input features.
-        mean :
-            data mean.
-        disp :
-            data dispersion.
-        ridge_lambda : float optional
-            ridge parameter.
-        Returns
-        -------
-        result : float
-            ZINB loss.
-        """
-        
+    def forward(self, out_dict, x_dict):
         eps = 1e-10
-        
-        if self.downstream == 'imputation':
-            truth = x_dict['label'][:, x_dict['y_gene_mask']]
-            mean = out_dict['mean'][:, x_dict['gene_mask']]
-            disp = out_dict['disp'][:, x_dict['gene_mask']]
-            mean = mean / mean.sum(1, keepdim=True) * truth.sum(1, keepdim=True)
-            out_dict['pred'] = mean
-            
-            if False:
-                return F.mse_loss(torch.log1p(out_dict['pred']), torch.log1p(truth))
-            else:
-                t1 = torch.lgamma(disp + eps) + torch.lgamma(truth + 1.0) - torch.lgamma(truth + disp + eps)
-                t2 = (disp + truth) * torch.log(1.0 + (mean / (disp + eps))) + (truth * (torch.log(disp + eps) - torch.log(mean + eps)))
-                nb_final = t1 + t2
-                return nb_final.sum(-1).mean()
-            
-        elif self.downstream == 'denoising':
-            truth = x_dict['label']
-            mean = out_dict['mean'][:, x_dict['gene_mask']]
-            disp = out_dict['disp'][:, x_dict['gene_mask']]
-            mean = mean / mean.sum(1, keepdim=True) * truth.sum(1, keepdim=True)
-            out_dict['pred'] = mean
-            
-            if False:
-                return F.mse_loss(torch.log1p(out_dict['pred']), torch.log1p(truth))
-            else:
-                t1 = torch.lgamma(disp + eps) + torch.lgamma(truth + 1.0) - torch.lgamma(truth + disp + eps)
-                t2 = (disp + truth) * torch.log(1.0 + (mean / (disp + eps))) + (truth * (torch.log(disp + eps) - torch.log(mean + eps)))
-                nb_final = t1 + t2
-                return nb_final.sum(-1).mean()
-            
+        if 'gene_mask' not in x_dict:
+            x_dict['gene_mask'] = torch.arange(x_dict['x_seq'].shape[1]).to(x_dict['x_seq'].device)
+        mean = out_dict['mean']
+        disp = out_dict['disp']
+        if 'input_gene_mask' in x_dict:
+            mean = mean[:, x_dict['input_gene_mask']]
+            disp = disp[:, x_dict['input_gene_mask']]
+        out_dict['pred'] = mean
+        mean = mean[:, x_dict['gene_mask']]
+        disp = disp[:, x_dict['gene_mask']]
+        truth = x_dict['x_seq'].to_dense()[:, x_dict['gene_mask']]
+        size_factor = truth.sum(1, keepdim=True) / mean.sum(1, keepdim=True)
+        mean *= size_factor
+        out_dict['pred'] *= size_factor
+
+        if False:
+            return F.mse_loss(torch.log1p(out_dict['pred']), torch.log1p(truth))
         else:
-            y = x_dict['x_seq'].to_dense()
-            truth = y[:, x_dict['gene_mask']]
-            mean = out_dict['mean'][:, x_dict['gene_mask']]
-            disp = out_dict['disp'][:, x_dict['gene_mask']]
-            masked_nodes = x_dict['input_mask'].sum(1)>0
-
-            if self.dae and self.training:
-                truth_masked = (truth * x_dict['input_mask'])[masked_nodes] #/ (x_dict['input_mask'][masked_nodes].mean())
-                mean_masked = (out_dict['mean'] * x_dict['input_mask'])[masked_nodes]
-                disp_masked = (out_dict['disp'] * x_dict['input_mask'])[masked_nodes]
-                mean_masked = mean_masked / mean_masked.sum(1, keepdim=True) * truth_masked.sum(1, keepdim=True)
-                t1 = torch.lgamma(disp_masked + eps) + torch.lgamma(truth_masked + 1.0) - torch.lgamma(truth_masked + disp_masked + eps)
-                t2 = (disp_masked + truth_masked) * torch.log(1.0 + (mean_masked / (disp_masked + eps))) + (
-                            truth_masked * (torch.log(disp_masked + eps) - torch.log(mean_masked + eps)))
-                nb_final_masked = t1 + t2
-            else:
-                nb_final_masked = 0.
-
-            truth = truth[masked_nodes]
-            mean = mean[masked_nodes]
-            disp = disp[masked_nodes]
-            mean = mean / mean.sum(1, keepdim=True) * truth.sum(1, keepdim=True)
-
             t1 = torch.lgamma(disp + eps) + torch.lgamma(truth + 1.0) - torch.lgamma(truth + disp + eps)
-            t2 = (disp + truth) * torch.log(1.0 + (mean / (disp + eps))) + (truth * (torch.log(disp + eps) - torch.log(mean + eps)))
-            nb_final = t1 + t2 + nb_final_masked
-
+            t2 = (disp + truth) * torch.log(1.0 + (mean / (disp + eps))) + (
+                        truth * (torch.log(disp + eps) - torch.log(mean + eps)))
+            nb_final = t1 + t2
             return nb_final.sum(-1).mean()
-        
 
+class NBDenoisingLoss(nn.Module):
+    """NB loss class."""
+
+    def __init__(self, dae=True, **kwargs):
+        super().__init__()
+        self.dae = dae
+        self.downstream = None
+
+    def forward(self, out_dict, x_dict):
+        eps = 1e-10
+
+        truth = x_dict['label']
+        mean = out_dict['mean'][:, x_dict['gene_mask']]
+        disp = out_dict['disp'][:, x_dict['gene_mask']]
+        mean = mean / mean.sum(1, keepdim=True) * truth.sum(1, keepdim=True)
+        out_dict['pred'] = mean
+
+        if False:
+            return F.mse_loss(torch.log1p(out_dict['pred']), torch.log1p(truth))
+        else:
+            t1 = torch.lgamma(disp + eps) + torch.lgamma(truth + 1.0) - torch.lgamma(truth + disp + eps)
+            t2 = (disp + truth) * torch.log(1.0 + (mean / (disp + eps))) + (
+                        truth * (torch.log(disp + eps) - torch.log(mean + eps)))
+            nb_final = t1 + t2
+            return nb_final.sum(-1).mean()
+
+class NBReconstructionLoss(nn.Module):
+    """NB loss class."""
+
+    def __init__(self, dae=True, **kwargs):
+        super().__init__()
+        self.dae = dae
+
+    def forward(self, out_dict, x_dict):
+        eps = 1e-10
+
+        y = x_dict['x_seq'].to_dense()
+        truth = y[:, x_dict['gene_mask']]
+        mean = out_dict['mean'][:, x_dict['gene_mask']]
+        disp = out_dict['disp'][:, x_dict['gene_mask']]
+        masked_nodes = x_dict['input_mask'].sum(1)>0
+
+        if self.dae and self.training:
+            truth_masked = (truth * x_dict['input_mask'])[masked_nodes] #/ (x_dict['input_mask'][masked_nodes].mean())
+            mean_masked = (out_dict['mean'] * x_dict['input_mask'])[masked_nodes]
+            disp_masked = (out_dict['disp'] * x_dict['input_mask'])[masked_nodes]
+            mean_masked = mean_masked / mean_masked.sum(1, keepdim=True) * truth_masked.sum(1, keepdim=True)
+            t1 = torch.lgamma(disp_masked + eps) + torch.lgamma(truth_masked + 1.0) - torch.lgamma(truth_masked + disp_masked + eps)
+            t2 = (disp_masked + truth_masked) * torch.log(1.0 + (mean_masked / (disp_masked + eps))) + (
+                        truth_masked * (torch.log(disp_masked + eps) - torch.log(mean_masked + eps)))
+            nb_final_masked = t1 + t2
+        else:
+            nb_final_masked = 0.
+
+        truth = truth[masked_nodes]
+        mean = mean[masked_nodes]
+        disp = disp[masked_nodes]
+        mean = mean / mean.sum(1, keepdim=True) * truth.sum(1, keepdim=True)
+
+        t1 = torch.lgamma(disp + eps) + torch.lgamma(truth + 1.0) - torch.lgamma(truth + disp + eps)
+        t2 = (disp + truth) * torch.log(1.0 + (mean / (disp + eps))) + (truth * (torch.log(disp + eps) - torch.log(mean + eps)))
+        nb_final = t1 + t2 + nb_final_masked
+
+        return nb_final.sum(-1).mean()

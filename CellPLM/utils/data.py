@@ -10,8 +10,9 @@ import json
 import os
 import warnings
 from typing import List
+import torch.nn.functional as F
 
-SPATIAL_PLATFORM_LIST = ['cosmx']
+SPATIAL_PLATFORM_LIST = ['cosmx', 'merfish']
 
 
 def sparse_scipy_to_tensor(x: scipy.sparse.csr_matrix):
@@ -25,16 +26,27 @@ class TranscriptomicDataset(Dataset):
                  label_fields: List[str] = None,
                  batch_gene_list: dict = None,
                  covariate_encoders: dict = None,
-                 label_encoders: dict = None):
+                 label_encoders: dict = None,
+                 order_required: bool = False):
         self.seq_list = []
         self.coord_list = []
+        self.order_list = []
         self.batch_gene_list = batch_gene_list
         self.covariate_fields = covariate_fields
         self.label_fields = label_fields
-        if not self.batch_gene_list:
-            self.gene_list = adata.var.index.tolist()
-        else:
+        self.order_required = order_required
+        self.gene_list = adata.var.index.tolist()
+
+        if self.batch_gene_list:
             assert 'batch' in adata.obs, 'Batch specific gene list is set but batch labels are not found in AnnData.obs.'
+            self.batch_gene_mask = {}
+            g2id = dict(zip(self.gene_list, list(range(len(self.gene_list)))))
+            for batch in batch_gene_list:
+                idx = torch.LongTensor([g2id[g] for g in batch_gene_list[batch]])
+                self.batch_gene_mask[batch] = torch.zeros(len(g2id)).bool()
+                self.batch_gene_mask[batch][idx] = True
+        else:
+            self.batch_gene_mask = None
 
         if split_field:
             assert split_field in adata.obs, f'Split field `{split_field}` is specified but not found in AnnData.obs.'
@@ -87,19 +99,18 @@ class TranscriptomicDataset(Dataset):
             if 'batch' in adata.obs:
                 self.batch_list.append(batch_le.classes_[batch])
 
-            if 'platform' in adata.obs and adata.obs['platform'][batch_labels == batch].first().isin(
-                    SPATIAL_PLATFORM_LIST):
-                # TODO: implement coord loader for spatial transcriptomic data
-                import ipdb
-                ipdb.set_trace()
-                coord_x = torch.from_numpy(adata.obs['x_FOV_px'][batch_labels == batch])
-                coord_y = torch.from_numpy(adata.obs['y_FOV_px'][batch_labels == batch])
+            if 'platform' in adata.obs and adata.obs['platform'][batch_labels == batch][0] in SPATIAL_PLATFORM_LIST:
+                coord_x = torch.tensor(adata.obs['x_FOV_px'][batch_labels == batch])[:, None]
+                coord_y = torch.tensor(adata.obs['y_FOV_px'][batch_labels == batch])[:, None]
                 self.coord_list.append(torch.cat([coord_x, coord_y], 1))
             else:
                 self.coord_list.append(torch.zeros(x.shape[0], 2) - 1)
 
             if split_field:
                 self.split_list.append(adata.obs[split_field][batch_labels == batch])
+
+            if order_required:
+                self.order_list.append(torch.from_numpy((batch_labels == batch).nonzero()[0]))
 
     def __len__(self):
         return len(self.batch_list)
@@ -117,10 +128,13 @@ class TranscriptomicDataset(Dataset):
         else:
             return_dict['split'] = None
 
-        if self.batch_gene_list:
-            return_dict['gene_list'] = self.batch_gene_list[self.batch_list[idx]]
-        else:
-            return_dict['gene_list'] = self.gene_list
+        if self.batch_gene_mask:
+            return_dict['gene_mask'] = self.batch_gene_mask[self.batch_list[idx]]
+
+        return_dict['gene_list'] = self.gene_list
+
+        if self.order_required:
+            return_dict['order_list'] = self.order_list[idx]
         return return_dict
 
 

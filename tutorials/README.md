@@ -3,8 +3,8 @@
 We plan to gradually release tutorials for different downstream tasks, including:
 
 - [x] Cell-type Annotation
-- [ ] Spatial Imputation
-- [ ] Zero-shot Cell Embedding
+- [x] Spatial Imputation
+- [x] Zero-shot Cell Embedding
 - [ ] Gene Perturbation Prediction
 
 ~We also plan to build a more user-friendly interface for downstream tasks, therefore, the tutorials might be updated from time to time.~

@@ -8,7 +8,7 @@ from tqdm import tqdm
 from copy import deepcopy
 from ..utils.eval import downstream_eval, aggregate_eval_results
 from ..utils.data import XDict, TranscriptomicDataset
-from typing import List
+from typing import List, Union
 from .experimental import symbol_to_ensembl
 from torch.utils.data import DataLoader
 import warnings
@@ -36,16 +36,19 @@ CellTypeAnnotationDefaultPipelineConfig = {
     'hvg': 3000,
     'patience': 25,
     'workers': 0,
-    'device': 'cpu',
 }
-def inference(model, dataloader, split, device, batch_size, eval_dict, label_fields=None):
+def inference(model, dataloader, split, device, batch_size, eval_dict, label_fields=None, order_required=False):
+    if order_required and split:
+        warnings.warn('When cell order required to be preserved, dataset split will be ignored.')
+
     with torch.no_grad():
         model.eval()
         epoch_loss = []
+        order_list = []
         pred = []
         label = []
         for i, data_dict in enumerate(dataloader):
-            if split and np.sum(data_dict['split'] == split) == 0:
+            if not order_required and split and np.sum(data_dict['split'] == split) == 0:
                 continue
 
             idx = torch.arange(data_dict['x_seq'].shape[0])
@@ -71,9 +74,16 @@ def inference(model, dataloader, split, device, batch_size, eval_dict, label_fie
                 if 'label' in input_dict:
                     epoch_loss.append(loss.item())
                     label.append(out_dict['label'])
+                if order_required:
+                    order_list.append(input_dict['order_list'])
                 pred.append(out_dict['pred'])
 
         pred = torch.cat(pred)
+        if order_required:
+            order = torch.cat(order_list)
+            order.scatter_(0, order.clone(), torch.arange(order.shape[0]).to(order.device))
+            pred = pred[order]
+
         if len(epoch_loss) == 0:
             return {'pred': pred}
         else:
@@ -86,7 +96,7 @@ def inference(model, dataloader, split, device, batch_size, eval_dict, label_fie
 class CellTypeAnnotationPipeline(Pipeline):
     def __init__(self,
                  pretrain_prefix: str,
-                 overwrite_config: dict = None,
+                 overwrite_config: dict = CellTypeAnnotationDefaultModelConfig,
                  pretrain_directory: str = './ckpt',
                  ):
         assert 'out_dim' in overwrite_config, '`out_dim` must be provided in `overwrite_config` for initializing a cell type annotation pipeline. '
@@ -103,18 +113,19 @@ class CellTypeAnnotationPipeline(Pipeline):
             label_fields: List[str] = None,
             batch_gene_list: dict = None,
             ensembl_auto_conversion: bool = True,
+            device: Union[str, torch.device] = 'cpu',
             ):
         config = CellTypeAnnotationDefaultPipelineConfig.copy()
         if train_config:
             config.update(train_config)
-        self.model.to(config['device'])
+        self.model.to(device)
         assert not self.fitted, 'Current pipeline is already fitted and does not support continual training. Please initialize a new pipeline.'
         if batch_gene_list is not None:
             raise NotImplementedError('Batch specific gene set is not implemented for cell type annotation pipeline. Please raise an issue on Github for further support.')
         if len(label_fields) != 1:
             raise NotImplementedError(f'`label_fields` containing multiple labels (f{len(label_fields)}) is not implemented for cell type annotation pipeline. Please raise an issue on Github for further support.')
         assert (split_field and train_split and valid_split), '`train_split` and `valid_split` must be specified.'
-        adata = self.common_preprocess(adata, config, covariate_fields, ensembl_auto_conversion)
+        adata = self.common_preprocess(adata, config['hvg'], covariate_fields, ensembl_auto_conversion)
         print(f'After filtering, {adata.shape[1]} genes remain.')
         dataset = TranscriptomicDataset(adata, split_field, covariate_fields, label_fields)
         self.label_encoders = dataset.label_encoders
@@ -152,7 +163,7 @@ class CellTypeAnnotationPipeline(Pipeline):
                 input_dict['loss_mask'] = torch.from_numpy((data_dict['split'] == train_split).values).bool()
                 input_dict['label'] = input_dict[label_fields[0]] # Currently only support annotating one label
                 for k in input_dict:
-                    input_dict[k] = input_dict[k].to(config['device'])
+                    input_dict[k] = input_dict[k].to(device)
                 x_dict = XDict(input_dict)
                 out_dict, loss = self.model(x_dict, data_dict['gene_list'])
                 with torch.no_grad():
@@ -170,7 +181,7 @@ class CellTypeAnnotationPipeline(Pipeline):
 
             train_loss.append(sum(epoch_loss) / len(epoch_loss))
             train_scores = aggregate_eval_results(train_scores)
-            result_dict = inference(self.model, dataloader, valid_split, config['device'],
+            result_dict = inference(self.model, dataloader, valid_split, device,
                                                 config['max_eval_batch_size'], self.eval_dict, label_fields)
             valid_scores = result_dict['metrics']
             valid_loss.append(result_dict['loss'])
@@ -197,49 +208,50 @@ class CellTypeAnnotationPipeline(Pipeline):
 
     def predict(self, adata: ad.AnnData,
                 inference_config: dict = None,
-                split_field: str = None,
-                target_split: str = None,  # if target_split is None, all splits will be predicted
                 covariate_fields: List[str] = None,
                 batch_gene_list: dict = None,
                 ensembl_auto_conversion: bool = True,
+                device: Union[str, torch.device] = 'cpu',
                 ):
         config = CellTypeAnnotationDefaultPipelineConfig.copy()
         if inference_config:
             config.update(inference_config)
-        self.model.to(config['device'])
+        self.model.to(device)
         assert self.fitted, 'Cell type annotation pipeline does not support zero shot setting. Please fine-tune the model on downstream datasets before inference.'
         if batch_gene_list is not None:
             raise NotImplementedError('Batch specific gene set is not implemented for cell type annotation pipeline. Please raise an issue on Github for further support.')
-        if target_split:
-            assert split_field, '`split_filed` must be provided when `target_split` is specified.'
-        adata = self.common_preprocess(adata, config, covariate_fields, ensembl_auto_conversion)
+        adata = self.common_preprocess(adata, config['hvg'], covariate_fields, ensembl_auto_conversion)
         print(f'After filtering, {adata.shape[1]} genes remain.')
-        dataset = TranscriptomicDataset(adata, split_field, covariate_fields, label_encoders=self.label_encoders)
+        dataset = TranscriptomicDataset(adata, None, covariate_fields, order_required=True)
         dataloader = DataLoader(dataset, batch_size=None, shuffle=False, num_workers=config['workers'])
-        return inference(self.model, dataloader, target_split, config['device'],
-                  config['max_eval_batch_size'], self.eval_dict)['pred']
+        return inference(self.model, dataloader, None, device,
+                  config['max_eval_batch_size'], self.eval_dict, order_required=True)['pred']
 
     def score(self, adata: ad.AnnData,
               evaluation_config: dict = None,
-              target_split: str = None,
               split_field: str = None,
+              target_split: str = 'test',
               covariate_fields: List[str] = None,
               label_fields: List[str] = None,
               batch_gene_list: dict = None,
               ensembl_auto_conversion: bool = True,
+              device: Union[str, torch.device] = 'cpu',
               ):
         config = CellTypeAnnotationDefaultPipelineConfig.copy()
         if evaluation_config:
             config.update(evaluation_config)
-        self.model.to(config['device'])
+        self.model.to(device)
         assert self.fitted, 'Cell type annotation pipeline does not support zero shot setting. Please fine-tune the model on downstream datasets before inference.'
         if batch_gene_list is not None:
             raise NotImplementedError('Batch specific gene set is not implemented for cell type annotation pipeline. Please raise an issue on Github for further support.')
+        if len(label_fields) != 1:
+            raise NotImplementedError(
+                f'`label_fields` containing multiple labels (f{len(label_fields)}) is not implemented for cell type annotation pipeline. Please raise an issue on Github for further support.')
         if target_split:
             assert split_field, '`split_filed` must be provided when `target_split` is specified.'
-        adata = self.common_preprocess(adata, config, covariate_fields, ensembl_auto_conversion, )
+        adata = self.common_preprocess(adata, config['hvg'], covariate_fields, ensembl_auto_conversion, )
         print(f'After filtering, {adata.shape[1]} genes remain.')
         dataset = TranscriptomicDataset(adata, split_field, covariate_fields, label_fields, label_encoders=self.label_encoders)
         dataloader = DataLoader(dataset, batch_size=None, shuffle=False, num_workers=config['workers'])
-        return inference(self.model, dataloader, target_split, config['device'],
+        return inference(self.model, dataloader, target_split, device,
                   config['max_eval_batch_size'], self.eval_dict, label_fields)['metrics']

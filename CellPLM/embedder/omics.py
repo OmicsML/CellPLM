@@ -38,6 +38,7 @@ class OmicsEmbedder(nn.Module):
         # x = sparse_tpm(x)
         if input_gene_list is not None:
             gene_idx = torch.tensor([self.gene_index[o] for o in input_gene_list if o in self.gene_index]).long()
+            x_dict['input_gene_mask'] = gene_idx
         else:
             if x.shape[1] != len(self.pretrained_gene_list):
                 raise ValueError('The input gene size is not the same as the pretrained gene list. Please provide the input gene list.')
