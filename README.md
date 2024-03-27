@@ -1,14 +1,13 @@
 # CellPLM
-This is the official codebase for [CellPLM: Pre-training of Cell Language Model Beyond Single Cells](https://www.biorxiv.org/content/10.1101/2023.10.03.560734).
+This is the official codebase for [CellPLM: Pre-training of Cell Language Model Beyond Single Cells](https://openreview.net/forum?id=BKXvPDekud). **The paper has been accepted by ICLR 2024 conference.** 
 
-[![Preprint](https://img.shields.io/badge/Preprint-bioRxiv-brightgreen)](https://www.biorxiv.org/content/10.1101/2023.10.03.560734)
+![Paper](https://img.shields.io/badge/Paper-ICLR24-brightgreen?link=https%3A%2F%2Fopenreview.net%2Fforum%3Fid%3DBKXvPDekud)
 [![License](https://img.shields.io/badge/License-BSD_2--Clause-orange.svg)](https://opensource.org/licenses/BSD-2-Clause)
 
-***CellPLM*** is the first single-***Cell*** ***P***re-trained ***L***anguage ***M***odel that encodes cell-cell relations and it consistently outperforms existing pre-trained and non-pre-trained models in diverse downstream tasks, with 100x higher inference speed compared to existing pre-trained models.
+***CellPLM*** is the first single-***Cell*** ***P***re-trained ***L***anguage ***M***odel that encodes cell-cell relations and it consistently outperforms existing pre-trained and non-pre-trained models in diverse downstream tasks, with 100x higher inference speed compared to existing pre-trained models. You can also find a brilliant blog about the idea of CellPLM [here](https://portal.valencelabs.com/blogs/post/cellplm-pre-training-of-cell-language-model-beyond-single-cells-wKScCQHIyicpXbx).
 
 ## Installation
 We recommend PyPI for quick installation. We recommend using `python 3.9` and `cuda>=11.7` but they are adjustable.
-
 
 ### Quick Installation with PyPI
 Make sure gpu version of pytorch (>=1.13.0) has been installed before installing CellPLM.
