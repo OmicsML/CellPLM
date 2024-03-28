@@ -11,6 +11,7 @@ import os
 import warnings
 from typing import List
 import torch.nn.functional as F
+from scipy.sparse import csr_matrix
 
 SPATIAL_PLATFORM_LIST = ['cosmx', 'merfish']
 
@@ -42,7 +43,7 @@ class TranscriptomicDataset(Dataset):
             self.batch_gene_mask = {}
             g2id = dict(zip(self.gene_list, list(range(len(self.gene_list)))))
             for batch in batch_gene_list:
-                idx = torch.LongTensor([g2id[g] for g in batch_gene_list[batch]])
+                idx = torch.LongTensor([g2id[g] for g in batch_gene_list[batch] if g in g2id])
                 self.batch_gene_mask[batch] = torch.zeros(len(g2id)).bool()
                 self.batch_gene_mask[batch][idx] = True
         else:
@@ -87,7 +88,7 @@ class TranscriptomicDataset(Dataset):
             self.batch_list = []
 
         for batch in range(batch_labels.max() + 1):
-            x = adata[batch_labels == batch].X.astype(float)
+            x = csr_matrix(adata[batch_labels == batch].X.astype(float))
             self.seq_list.append(sparse_scipy_to_tensor(x))
 
             for c in covariate_fields:
